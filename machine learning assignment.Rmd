@@ -1,0 +1,102 @@
+---
+title: "Practical Machine Learning Assignment"
+author: "Zhang Jiasheng"
+date: "April 3, 2016"
+output: html_document
+---
+## Summary
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. The report will use data from accelerometers on the belt, forearm, arm, and dumbell of participants to predict the manner in which praticipants did the exercise.
+
+### Read and Clean Data
+
+```{r}
+training<-read.csv("pml-training.csv", na.strings = c("NA",""),header =  T)
+testing<-read.csv("pml-testing.csv",na.strings=c("NA",""),header = T)
+dim(training);dim(testing)
+```
+
+- Now, we remove the variables which  have too many NA values.
+```{r}
+trainingData<-training[,colSums(is.na(training))==0]
+```
+
+- Next, we remove the irrelevant variables.
+```{r}
+remove=c('X','user_name','raw_timestamp_part_1','raw_timestamp_part_2','cvtd_timestamp','new_window','num_window')
+trainingset<-trainingData[,-which(names(training) %in% remove)]
+```
+
+- Then, check variables have very low variance 
+```{r}
+library(caret)
+zeroVar<-nearZeroVar(trainingset[sapply(trainingset,is.numeric)],saveMetrics = TRUE)
+training.nonzerovar=trainingset[,zeroVar[,'nzv']==0]
+dim(training.nonzerovar)
+```
+
+- Last, the variables that are highly correlated will be excluded.  
+```{r}
+corrMatrix<-cor(na.omit(training.nonzerovar[sapply(training.nonzerovar,is.numeric)]))
+dim(corrMatrix)
+remove_cor<-findCorrelation(corrMatrix,cutoff = .90,verbose = TRUE)
+training_finaldata<-training.nonzerovar[,-remove_cor]
+dim(training_finaldata)
+```
+
+We are left with 19622 samples and 46 variables. 
+
+### Partition Data
+```{r}
+inTrain<-createDataPartition(y=training_finaldata$classe,p=0.7,list = FALSE)
+trainset<-training_finaldata[inTrain,];testset<-training_finaldata[-inTrain,]
+dim(trainset);dim(testset)
+```
+
+We got 13737 samples and 46 variables for training set, 5885 samples and 46 variables for testing set. 
+
+##Analysis
+###Regression Tree
+Fit a tree model to the training set.
+```{r}
+library(tree)
+tree.training<-tree(classe~. ,data=trainset)
+summary(tree.training)
+plot(tree.training)
+text(tree.training,pretty = 0,cex=0.8)
+```
+
+###Cross Validation
+We are going to check the performance of the tree on the testing set by cross validation.
+
+```{r}
+tree.pred=predict(tree.training,testset,type="class")
+predMatrix=with(testset,table(tree.pred,classe))
+sum(diag(predMatrix))/sum(as.vector(predMatrix))
+```
+It is around 0.7, which is not very accurate. 
+
+###Random Forests
+To improve the accuracy , we use random forests method to build the model.
+
+```{r}
+require(randomForest)
+rf.trainset=randomForest(classe~.,data=trainset,ntree=100,importance=TRUE)
+varImpPlot(rf.trainset)
+```
+The plots above show which variables have higher impact on the prediction.
+
+###Out-of-Sample Accuracy
+Now we evaluate the prediction model on test set. 
+```{r}
+tree.pred=predict(rf.trainset,testset,type="class")
+predMatrix = with(testset,table(tree.pred,classe))
+sum(diag(predMatrix))/sum(as.vector(predMatrix))
+```
+The random forest model is very accurate. It gives us 0.99 accuracy. 
+
+##Conclusion
+We then run our model against the testing dataset and display the predicted results.
+```{r}
+pred_final<-predict(rf.trainset,testing)
+pred_final
+```
